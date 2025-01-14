@@ -1,5 +1,5 @@
 <div class="heading">
-    <h1>
+    <h1 align='center'>
         Seattle Housing Market Analysis Project
     </h1>
     <p align='center'><b>Download HTML file to view full report!</b></p>
