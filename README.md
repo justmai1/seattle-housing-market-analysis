@@ -2,6 +2,7 @@
     <h1>
         Seattle Housing Market Analysis Project
     </h1>
+    <p align='center'><b>Download HTML file to view full report!</b></p>
     <h2>
         Research Questions:
         <ol>
@@ -24,5 +25,9 @@
     <h2>
       Showcase:
     </h2>
-    <img/>
+    <img src="img/average-rates.png" alt="Seattle house price vs annual income rates"/>
 </div>
+
+## Summary
+
+
