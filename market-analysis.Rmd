@@ -1,0 +1,71 @@
+---
+title: "\\textbf{Seattle Housing Market Analysis}"
+author: "Justin Mai"
+output:
+  pdf_document:
+    toc: true
+    latex_engine: xelatex
+  html_document: default
+geometry: margin=37pt
+fontsize: 11pt
+header-includes:
+  - \usepackage{titling}
+  - \usepackage{titlesec}
+  - \titlespacing*{\title}{0pt}{0pt}{0pt}
+  - \setlength{\droptitle}{-2em}
+  - \setlength{\topskip}{0pt} 
+mainfont: "Times New Roman"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+\newpage
+
+# 1. Abstract
+
+\newpage
+
+# 2. Introduction
+
+
+
+# 3. Methods
+
+```{r include=FALSE, echo=FALSE}
+sales <- read.csv("datasets/kingco_sales_23.csv")
+```
+
+```{r}
+sales <- sales %>% 
+  filter(sale_date >= "2023-01-01")
+
+sales <- sales %>%
+  mutate(region = case_when(
+    city %in% c("SEATTLE", "SHORELINE", "LAKE FOREST PARK") ~ "Seattle Area",
+    city %in% c("BELLEVUE", "REDMOND", "KIRKLAND", "MEDINA", "CLYDE HILL", "YARROW POINT", "HUNTS POINT", "BEAUX ARTS", "NEWCASTLE") ~ "Eastside",
+    city %in% c("RENTON", "TUKWILA", "SEA-TAC", "DES MOINES", "BURIEN", "NORMANDY PARK") ~ "South King County",
+    city %in% c("AUBURN", "FEDERAL WAY", "ALGONA", "PACIFIC", "KENT") ~ "Southwest King County",
+    city %in% c("SAMMAMISH", "ISSAQUAH", "MAPLE VALLEY", "COVINGTON", "BLACK DIAMOND") ~ "Southeast King County",
+    city %in% c("WOODINVILLE", "KENMORE", "BOTHELL", "DUVALL") ~ "North King County",
+    city %in% c("SNOQUALMIE", "NORTH BEND", "SKYKOMISH", "CARNATION", "ENUMCLAW") ~ "Rural King County",
+    city == "MILTON" ~ "Pierce County",
+    city == "KING COUNTY" ~ "General King County",
+    TRUE ~ "Unknown"
+  )) %>% 
+  select(!c(sale_id,pinx,sale_nbr,sale_warning,join_status,join_year,latitude,longitude))
+```
+
+
+```{r}
+house_appreciation <- read.csv("datasets/sql-house-appreciation.csv")
+```
+
+
+# 4. Model
+
+# 5. Results
+
+# 6. Conclusion
