@@ -61,7 +61,6 @@ sales <- sales %>%
 
 ```{r}
 house_appreciation <- read.csv("datasets/sql-house-appreciation.csv")
-m
 ```
 
 
