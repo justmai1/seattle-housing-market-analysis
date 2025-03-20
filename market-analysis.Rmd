@@ -6,7 +6,7 @@ output:
     toc: true
     latex_engine: xelatex
   html_document: default
-geometry: margin=37pt
+geometry: margin=40pt
 fontsize: 11pt
 header-includes:
   - \usepackage{titling}
@@ -20,29 +20,61 @@ mainfont: "Times New Roman"
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(corrplot)
 ```
 
 \newpage
 
 # 1. Abstract
 
+**Keywords**: King County Home Sales, Multiple Linear Regression, Prediction Modeling
+
 \newpage
 
 # 2. Introduction
 
+Within a highly populated like the Great Seattle and King County area, looking to be a first time homeowner or to purchase a home within the area in general is a tall task. Prices can fluctuate based on several factors making it difficult to make financial decisions. The goal of this report is to develop a model that can support home buyers, investors, and real estate agents navigate the housing market by including the variables that are the most impactful to home prices. Using historical home sales data in King County from 2023-2025, this report aims to use machine learning tools used in multiple linear regression to predict prices. Our goals are **(1) Discover the variables and factors that are significant to forecasting King County home sales using linear regression and ANOVA tools (2) See how well our model predicts prices on our test dataset**
 
+# 3. Data
 
-# 3. Methods
+## 3.1 Data Overview
+
+The primary dataset we are using was developed by *Andy Krause* who works as the Director of Valuation and Market Dynamics at Zillow. The dataset he produced was developed with the goal of creating an open access user tool to support in analyzing the housing market. Our dataset consists of 33,333 different observations which represents home sales from 2023 to the start of 2025. Our model will be primarily used to make predictions on `sale_price` and the dataset consists of continuous variables like `land_val`, `sqft`, and `sqft_lot`, and categorical variables like `city`, `zoning`, and `subdivision`. The dataset comes with 45+ predictors for us to use. See https://github.com/andykrause/kingCoData for more details.
 
 ```{r include=FALSE, echo=FALSE}
 sales <- read.csv("datasets/kingco_sales_23.csv")
 ```
 
+## 3.2 Data Splitting
+
+To avoid data leakage, the influence of training data on testing data, we are splitting our data before applying any type of manipulation. We will be using a standard 80% by 20% split between training and testing data respectively. The data manipulation and transformations will be applied to the training data before modeling, our optimal model developed by the training data will be used on the testing data.
+
 ```{r}
-sales <- sales %>% 
+sales <- sales %>%
+  mutate(sale_date = as.Date(sale_date),
+         across(where(is.character), as.factor))
+```
+
+
+```{r label="data_splitting", echo=FALSE}
+set.seed(101)
+n = nrow(sales)
+
+test_indices <- sample(seq_len(n), size = floor(0.2 * n))
+
+test <- sales[test_indices,]
+train <- sales[-test_indices,]
+```
+
+After applying splitting our data, we have `r nrow(train)` observations in the training data and `r nrow(test)` observations in the testing data which are both considered sufficient amounts of data. We have chosen the split randomly to eliminate bias in splitting and are also using `set.seed(101)` for the experiment to be reproducible. (See appendix for details)
+
+## 3.3 Data Manipulation
+
+```{r label="data_manipulation", echo=FALSE}
+train <- train %>% 
   filter(sale_date >= "2023-01-01")
 
-sales <- sales %>%
+train <- train %>%
   mutate(region = case_when(
     city %in% c("SEATTLE", "SHORELINE", "LAKE FOREST PARK") ~ "Seattle Area",
     city %in% c("BELLEVUE", "REDMOND", "KIRKLAND", "MEDINA", "CLYDE HILL", "YARROW POINT", "HUNTS POINT", "BEAUX ARTS", "NEWCASTLE") ~ "Eastside",
@@ -55,17 +87,77 @@ sales <- sales %>%
     city == "KING COUNTY" ~ "General King County",
     TRUE ~ "Unknown"
   )) %>% 
-  select(!c(sale_id,pinx,sale_nbr,sale_warning,join_status,join_year,latitude,longitude))
+  select(!c(sale_id,pinx,sale_nbr,sale_warning,join_status,join_year,latitude,longitude)) %>% 
+  mutate(renovated = ifelse(year_reno == 0, 0, 1)) %>% 
+  select(!c(city)) %>% 
+  mutate(view = ifelse(view_rainier >= 1 | view_olympics >= 1 | view_cascades >= 1 | view_territorial >= 1 | view_skyline >= 1 | view_sound >= 1 | view_lakewash >= 1 | view_lakesamm >= 1, 1, 0)) %>% 
+  select(!c(view_rainier,view_olympics,view_cascades,view_territorial,view_skyline,view_sound,view_lakewash,view_lakesamm,view_other,view_otherwater,X.1,X,zoning,subdivision,year_reno))
 ```
 
+## 3.3 Data Transformation
 
 ```{r}
-house_appreciation <- read.csv("datasets/sql-house-appreciation.csv")
+train %>%
+  pivot_longer(cols = c(sqft, sqft_lot, land_val, imp_val), 
+               names_to = "Variable", values_to = "Value") %>% 
+ggplot(aes(x = Value, y = sale_price)) +
+  geom_point() +
+  facet_wrap(~Variable, scales = "free_x") +
+  labs(x = "Continuous Variable", y = "Sale Price")
+```
+
+```{r}
+train %>%
+  mutate(across(c(sqft, sqft_lot, land_val, imp_val), log, .names = "log_{.col}")) %>%
+  pivot_longer(cols = starts_with("log_"), 
+               names_to = "Variable", values_to = "Value") %>%
+  ggplot(aes(x = Value, y = log(sale_price))) +
+  geom_point(alpha = 0.5) +
+  facet_wrap(~Variable, scales = "free_x") +
+  labs(x = "Log Transformed Value", y = "Sale Price")
+```
+
+```{r}
+summary(lm(sale_price ~ . , data = train))
 ```
 
 
 # 4. Model
 
+```{r}
+num_vars <- train %>%
+  select_if(is.numeric) %>%
+  select(-sale_price)
+
+corr_mat <- cor(num_vars, use = "pairwise.complete.obs")
+
+corrplot(corr_mat, method = "circle", tl.cex = 0.7,
+         title = "Correlation Matrix of Numeric Predictors",
+         mar = c(0,0,1,0))
+
+```
+
+
+## 4.1 Model Assumptions / Diagnostics
+
+## 4.2 Model Selection
+
 # 5. Results
 
-# 6. Conclusion
+# 6. Discussion / Conclusion
+
+\newpage
+
+# 7 Appendix
+
+Data splitting process
+
+```{r eval=FALSE, ref.label="data_splitting"}
+
+```
+
+Data manipulation process
+
+```{r eval=FALSE, ref.label="data_manipulation}
+
+```
