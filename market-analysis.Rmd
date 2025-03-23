@@ -21,6 +21,8 @@ mainfont: "Times New Roman"
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(corrplot)
+library(leaps)
+library(MASS)
 ```
 
 \newpage
@@ -49,54 +51,71 @@ sales <- read.csv("datasets/kingco_sales_23.csv")
 
 To avoid data leakage, the influence of training data on testing data, we are splitting our data before applying any type of manipulation. We will be using a standard 80% by 20% split between training and testing data respectively. The data manipulation and transformations will be applied to the training data before modeling, our optimal model developed by the training data will be used on the testing data.
 
-```{r}
-sales <- sales %>%
-  mutate(sale_date = as.Date(sale_date),
-         across(where(is.character), as.factor))
-```
-
 
 ```{r label="data_splitting", echo=FALSE}
 set.seed(101)
 n = nrow(sales)
 
 test_indices <- sample(seq_len(n), size = floor(0.2 * n))
-
-test <- sales[test_indices,]
-train <- sales[-test_indices,]
 ```
 
 After applying splitting our data, we have `r nrow(train)` observations in the training data and `r nrow(test)` observations in the testing data which are both considered sufficient amounts of data. We have chosen the split randomly to eliminate bias in splitting and are also using `set.seed(101)` for the experiment to be reproducible. (See appendix for details)
 
 ## 3.3 Data Manipulation
 
-```{r label="data_manipulation", echo=FALSE}
-train <- train %>% 
-  filter(sale_date >= "2023-01-01")
+Within our data manipulation process, we started by filtering our data to be data from 2023-2025 because that is the scope of the sales data that we want to model off of. We then recognized that there were too many cities for our data to handle and based off our report for correlation, we found that cities within the same region rise in price at around the same rate. This enables us to create a `region` variable that represents multiple cities listed, giving us a more condensed model without forfeiting any values. We then removed variables that we deemed were unnecessary like `longitude` and `latitude`. We also saw from modeling with the full model that the `view` variables were mostly not significant at $\alpha = 0.05$ so we consolidated it into one binary variable that shows the value 1 if the home does have an exotic view or 0 if not. Before finalizing this model, we checked for NA values to see if there were any and if there were any patterns within NA values. We want the data to be an adequate representation of the population, so ensuring that NA values didn't strongly impact one category was important for us. Luckily we didn't identify any NULL values that resulted in bias within the dataset.
 
-train <- train %>%
+```{r label="data_manipulation", echo=FALSE}
+
+sales <- sales %>% 
+  filter(sale_date >= "2023-01-01") %>%
   mutate(region = case_when(
     city %in% c("SEATTLE", "SHORELINE", "LAKE FOREST PARK") ~ "Seattle Area",
-    city %in% c("BELLEVUE", "REDMOND", "KIRKLAND", "MEDINA", "CLYDE HILL", "YARROW POINT", "HUNTS POINT", "BEAUX ARTS", "NEWCASTLE") ~ "Eastside",
-    city %in% c("RENTON", "TUKWILA", "SEA-TAC", "DES MOINES", "BURIEN", "NORMANDY PARK") ~ "South King County",
+    city %in% c("BELLEVUE", "REDMOND", "KIRKLAND", "MEDINA", 
+                "CLYDE HILL", "YARROW POINT", "HUNTS POINT", 
+                "BEAUX ARTS", "NEWCASTLE") ~ "Eastside",
+    city %in% c("RENTON", "TUKWILA", "SEA-TAC", "DES MOINES", 
+                "BURIEN", "NORMANDY PARK") ~ "South King County",
     city %in% c("AUBURN", "FEDERAL WAY", "ALGONA", "PACIFIC", "KENT") ~ "Southwest King County",
-    city %in% c("SAMMAMISH", "ISSAQUAH", "MAPLE VALLEY", "COVINGTON", "BLACK DIAMOND") ~ "Southeast King County",
+    city %in% c("SAMMAMISH", "ISSAQUAH", "MAPLE VALLEY", "COVINGTON", 
+                "BLACK DIAMOND") ~ "Southeast King County",
     city %in% c("WOODINVILLE", "KENMORE", "BOTHELL", "DUVALL") ~ "North King County",
     city %in% c("SNOQUALMIE", "NORTH BEND", "SKYKOMISH", "CARNATION", "ENUMCLAW") ~ "Rural King County",
     city == "MILTON" ~ "Pierce County",
     city == "KING COUNTY" ~ "General King County",
     TRUE ~ "Unknown"
-  )) %>% 
-  select(!c(sale_id,pinx,sale_nbr,sale_warning,join_status,join_year,latitude,longitude)) %>% 
-  mutate(renovated = ifelse(year_reno == 0, 0, 1)) %>% 
-  select(!c(city)) %>% 
+  )) %>%
+  mutate(renovated = ifelse(year_reno == 0, 0, 1)) %>%
   mutate(view = ifelse(view_rainier >= 1 | view_olympics >= 1 | view_cascades >= 1 | view_territorial >= 1 | view_skyline >= 1 | view_sound >= 1 | view_lakewash >= 1 | view_lakesamm >= 1, 1, 0)) %>% 
-  select(!c(view_rainier,view_olympics,view_cascades,view_territorial,view_skyline,view_sound,view_lakewash,view_lakesamm,view_other,view_otherwater,X.1,X,zoning,subdivision,year_reno))
+  dplyr::select(-dplyr::any_of(c(
+    "view_rainier", "view_olympics", "view_cascades", 
+    "view_territorial", "view_skyline", "view_sound", 
+    "view_lakewash", "view_lakesamm", "view_other", 
+    "view_otherwater", "X.1", "X", "zoning", 
+    "subdivision", "year_reno","city"
+  ))) %>% 
+  dplyr::select(!all_of(c("sale_id", "pinx", "sale_nbr", "sale_warning", 
+                    "join_status", "join_year", "latitude", "longitude")))
+
+sales <- sales %>%
+  mutate(sale_date = as.Date(sale_date),
+         across(where(is.character), as.factor))
 ```
 
 ## 3.3 Data Transformation
 
-```{r}
+**Linear Modeling Assumptions**:
+
+\begin{itemize}
+    \item \textbf{Linearity}: The relationship between the predictor and response is linear.
+    \item \textbf{Independence}: All observations are independent of one another (pair-wise independence).
+    \item \textbf{Homoscedasticity}: The variance of residuals is constant across predictor levels.
+    \item \textbf{Residual Normality}: The residuals follow a normal distribution.
+\end{itemize}
+
+To start with our tests, we first checked residual normality among our continuous variables when plotting against our response variable of `sale_price`. We can see that the residuals weren't normal with each plot demonstrating left skewness with many high outliers.
+
+```{r echo=FALSE, label="pre-log-transformation"}
 train %>%
   pivot_longer(cols = c(sqft, sqft_lot, land_val, imp_val), 
                names_to = "Variable", values_to = "Value") %>% 
@@ -106,7 +125,9 @@ ggplot(aes(x = Value, y = sale_price)) +
   labs(x = "Continuous Variable", y = "Sale Price")
 ```
 
-```{r}
+To satisfy this test, we applied a log-transformation on our response and continuous variables to normalize the scatterplots.
+
+```{r echo=FALSE, label="post-log-transformation"}
 train %>%
   mutate(across(c(sqft, sqft_lot, land_val, imp_val), log, .names = "log_{.col}")) %>%
   pivot_longer(cols = starts_with("log_"), 
@@ -118,16 +139,18 @@ train %>%
 ```
 
 ```{r}
-summary(lm(sale_price ~ . , data = train))
+sales$log_sale_price = log(sales$sale_price)
+sales$log_sqft = log(sales$sqft)
+sales$log_sqft_lot = log(sales$sqft_lot)
 ```
 
 
 # 4. Model
 
 ```{r}
-num_vars <- train %>%
+num_vars <- sales %>%
   select_if(is.numeric) %>%
-  select(-sale_price)
+  dplyr::select(-sale_price)
 
 corr_mat <- cor(num_vars, use = "pairwise.complete.obs")
 
@@ -137,12 +160,55 @@ corrplot(corr_mat, method = "circle", tl.cex = 0.7,
 
 ```
 
+```{r}
+sales <- sales %>% 
+  dplyr::select(!c(sqft, sqft_lot))
+```
 
 ## 4.1 Model Assumptions / Diagnostics
 
 ## 4.2 Model Selection
 
+```{r}
+test <- sales[test_indices,]
+train <- sales[-test_indices,]
+
+log_full_model <- lm(log_sale_price ~ .- sale_price, data = sales)
+step_log_model <- stepAIC(log_full_model, direction = "both", trace = FALSE)
+
+anova(step_log_model)
+```
+
 # 5. Results
+
+```{r}
+test_predictions_log <- predict(step_log_model,newdata = test)
+test_predictions_sale_price <- exp(test_predictions_log)
+
+results_df <- data.frame(
+  actual_sale = test$sale_price,
+  predicted_sale = test_predictions_sale_price
+)
+
+results_df <- results_df %>% drop_na()
+
+threshold <- quantile(results_df$actual_sale, 0.95)  # Set threshold as 95th percentile
+results_df <- results_df %>%
+  filter(actual_sale <= threshold)
+
+rmse = sqrt(mean((results_df$actual_sale - results_df$predicted_sale)^2))
+
+ggplot(results_df, aes(x = actual_sale, y = predicted_sale)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(title = "Test Set: Predicted vs. Actual Sale's Price",
+       x = "Actual Sales Price (USD)",
+       y = "Predicted Sales Price (USD)") +
+  theme_minimal()
+
+
+```
+
 
 # 6. Discussion / Conclusion
 
@@ -158,6 +224,19 @@ Data splitting process
 
 Data manipulation process
 
-```{r eval=FALSE, ref.label="data_manipulation}
+```{r eval=FALSE, ref.label="data_manipulation"}
 
 ```
+
+Pre-log transformation
+
+```{r eval=FALSE, ref.label="pre-log-transformation"}
+
+```
+
+Post-log transformation
+
+```{r eval=FALSE, ref.label="post-log-transformation"}
+
+```
+
